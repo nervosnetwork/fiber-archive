@@ -1,5 +1,34 @@
 # Fiber Network  Architecture Design V0.4
 
+- [Fiber Network  Architecture Design V0.4](#fiber-network--architecture-design-v04)
+  - [Features](#features)
+  - [概述](#概述)
+  - [scripts](#scripts)
+    - [payment channel typescript (PCT)](#payment-channel-typescript-pct)
+    - [payment channel lockscript (PCL)](#payment-channel-lockscript-pcl)
+  - [流程说明](#流程说明)
+    - [创建 channel](#创建-channel)
+    - [线下交易](#线下交易)
+    - [协议关闭通道](#协议关闭通道)
+    - [单向关闭通道](#单向关闭通道)
+    - [发起挑战，更新 channel 状态](#发起挑战更新-channel-状态)
+    - [清算 channel](#清算-channel)
+    - [finalize channel](#finalize-channel)
+    - [结算交易](#结算交易)
+  - [用户视角看流程](#用户视角看流程)
+    - [创建 channel](#创建-channel-1)
+    - [channel 支付](#channel-支付)
+    - [多跳支付](#多跳支付)
+    - [关闭通道](#关闭通道)
+  - [使用公用的 preimage cell 避免把 proof cell 永远留在链上](#使用公用的-preimage-cell-避免把-proof-cell-永远留在链上)
+    - [proof cell 设计](#proof-cell-设计)
+    - [preimage cell 设计](#preimage-cell-设计)
+  - [扩展](#扩展)
+    - [不关闭 channel 的情况下进行充值和取款的扩展](#不关闭-channel-的情况下进行充值和取款的扩展)
+    - [存款场景](#存款场景)
+    - [取款场景](#取款场景)
+    - [让 HTLC 的空间占用为常数级别](#让-htlc-的空间占用为常数级别)
+
 ## Features
 
 本方案使用 cell data 维护 channel 数据，表达 channel 状态转移。参考 sprite 方案进行设计，并使用了志春设计的 proof cell 方案。
@@ -183,13 +212,13 @@ table UpdateChannelDataToSign {
 table UnilateralCloseChannel {
     data: UpdateChannelDataToSign,
     signatures: Signatures,
-    submitter_signature: Signature,    
+    submitter_signature: Signature,
 }
 
 table UpdateChannel {
     data: UpdateChannelDataToSign,
     signatures: Signatures,
-    submitter_signature: Signature,    
+    submitter_signature: Signature,
 }
 
 /*
@@ -372,7 +401,7 @@ PCT 逻辑
                 - state: CLOSING
                 - version: 100
                 - balances: [50 CKB, 120 CKB]
-            - update_times: [0, 1]    
+            - update_times: [0, 1]
             - htlcs:
                 - htlc1
                     - lock
@@ -386,7 +415,7 @@ PCT 逻辑
                 - state: CLOSING
                 - version: 101
                 - balances: [40 CKB, 130 CKB]
-            - update_times: [1, 1]    
+            - update_times: [1, 1]
             - htlcs:
                 - htlc1
                     - lock
@@ -452,7 +481,7 @@ PCT 逻辑
 
 * input 中的 state 可以是 CLOSING 或 CLEARING，output 中的 state 为 CLEARING
     * 如果 input 为 CLOSING，需要校验 input since 符合超时要求
-* 通过引用 proof cell  或 preimage cell 可以修改 htlc 
+* 通过引用 proof cell  或 preimage cell 可以修改 htlc
 
     * htlc1 的 lock 和 proof cell 提供的原像匹配
     * preimage_shown 从 0 变为 1
@@ -613,27 +642,9 @@ B -> A: R + New-Commitment-A-B
         * 仅当 inputs 里有 proof cell 时，可以解析其内容，加入 SMT 的 kv 对
 * lockscript: anyone-can-unlock
 
-## offchain 模块交互接口设计
+## 扩展
 
-offchain 模块启动 server，启动两个 handler，一个处理 p2p 网络交互，一个处理本地 RPC。
-
-* 本地 rpc 交互
-    * open_channel
-    * list_channel_requests
-    * approve_channel_request
-    * pay
-        * channel 支付
-        * 多跳支付
-* p2p 交互
-    * broadcast_channel_status
-        * 完成一笔新的支付后，广播该 channel 最新状态
-    * get_channel_status
-    * pay
-    * multi_hop_pay
-    * multi_hop_pay_reveal
-
-
-## 不关闭 channel 的情况下进行充值和取款的扩展
+### 不关闭 channel 的情况下进行充值和取款的扩展
 
 channel 的资产都通过 PCL 守护。增加或减少其中的资产和 channel cell 互不影响。因此可以设计方案，在不关闭 channel 的情况下进行充值和取款。此处的重点是，要保证 充值/取款 操作和签发新的 commitment 两个行为的原子性。
 
@@ -646,7 +657,6 @@ channel 的资产都通过 PCL 守护。增加或减少其中的资产和 channe
         * B 签署了包含存款证明的 commitment 后，即使退出时引用该 proof cell，也会被 PCT 忽略。保证了 A 无法使用两次这笔存款。
         * 后续 A 销毁了 deposit-proof-cell，在后续签发的 commitment 中可以放心的从 included_deposit 中移除该 cell
     * 如果 B 不配合签署，A 可以认为 B 作恶，发起关闭 channel。在 channel 的 update 过程中，A 可以引用 deposit-proof-cell 驱动 channel cell 状态转移，增加结算时自己的余额。channel 的校验逻辑为，如果 included_deposit 中不包含引用的 deposit-proof-cell，则增加对应 pubkey 的余额，否则忽略。
-
 
 
 存款交易示例
@@ -666,7 +676,7 @@ channel 的资产都通过 PCL 守护。增加或减少其中的资产和 channe
           - deposit: 20 CKB
           - asset: 0x0
           - recipient_pubkey: pubkey1
-          - channel_id  
+          - channel_id
 
 ```
 
@@ -677,24 +687,15 @@ channel 的资产都通过 PCL 守护。增加或减少其中的资产和 channe
     * 如果 A 拒绝签发新 commitment，B 关闭通道，并应用 withdraw-proof-cell 扣减 A 的余额
     * A 签发了新 commitment，则 channel 内总余额已减少。后续每次签发新交易均保留 included_withdraw 直到 withdraw-proof-cell 被销毁，被销毁后再签 commitment 可以不用包含该 withdraw-proof-cell。
 
-
-
-## 扩展
-
 ### 让 HTLC 的空间占用为常数级别
 
 目前的设计里，如果一个 channel 的 HTLC 数量较多，用户 close 的时候需要更多的 capacity 进行操作。尽管用户需要付出的成本是这部分 capacity 占用从 CLOSING 开始到 channel cell 销毁的机会成本，但是肯定导致需要用户在一开始拿出更多的 CKB，用户体验上不太好。考虑让 HTLC 占用的空间为常数级别。
 
 具体方案
 
-* htlcs 字段改为 htlc_root，存放 htlc 数据的 merkle root
-* 对于 htlc 和 channel 一起结算的方案
-    * 在 ClearChannel 操作中，witness 里放入要提供证明的 htlc 原始数据和 merkle proof，结算后的 htlc 余额直接体现到 channel cell 的 balances 中去
-    * 由于未提供证明的 htlc 也要结算，因此需要一个额外的步骤，在清算期结束后，提供原始数据将未提供证明的 htlc 进行结算
-* 对于 htlc 和 channel 分开结算的方案
-    * 在 ClearChannel 操作中，witness 里放入要提供证明的 htlc 原始数据和 merkle proof。output 里把所有 htlc cell 生成出来
-        * 一个潜在的问题是，当 htlc 数量很大时，可能超过交易大小限制
+* htlcs 字段改为 htlc_root，存放 htlc 数据的 merkle root。
+* 在 ClearChannel 的时候直接结算掉通道的余额部分，channel cell 保留。之前设计里每一次 ClearChannel 都是修改 channel cell 的状态，可以改成每次都直接清算对应的资产。
+* 每引用一个 htlc proof 就提供一个数据，解锁对应的钱。超时后引用剩下未处理的 htlc，解锁对应的钱。
 
-* 不使用 htlc cell，但是分开结算 channel 余额和 htlc
-    * 在 ClearChannel 的时候直接结算掉通道的余额部分，channel cell 保留。之前设计里每一次 ClearChannel 都是修改 channel cell 的状态，可以改成每次都直接清算对应的资产。
-    * 每引用一个 htlc proof 就提供一个数据，解锁对应的钱。超时后引用剩下未处理的 htlc，解锁对应的钱。
+参考资料
+- https://github.com/jjyr/sparse-merkle-tree
