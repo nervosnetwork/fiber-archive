@@ -25,8 +25,8 @@
     - [preimage cell 设计](#preimage-cell-设计)
   - [扩展](#扩展)
     - [不关闭 channel 的情况下进行充值和取款的扩展](#不关闭-channel-的情况下进行充值和取款的扩展)
-    - [存款场景](#存款场景)
-    - [取款场景](#取款场景)
+      - [存款场景](#存款场景)
+      - [取款场景](#取款场景)
     - [让 HTLC 的空间占用为常数级别](#让-htlc-的空间占用为常数级别)
 
 ## Features
@@ -648,7 +648,7 @@ B -> A: R + New-Commitment-A-B
 
 channel 的资产都通过 PCL 守护。增加或减少其中的资产和 channel cell 互不影响。因此可以设计方案，在不关闭 channel 的情况下进行充值和取款。此处的重点是，要保证 充值/取款 操作和签发新的 commitment 两个行为的原子性。
 
-### 存款场景
+#### 存款场景
 
 * 将 PCL 改造成 ACP，可以接收任何人的存款
 * 设计 channel-deposit-typescript，在往 PCL 存款的同时，生成一个 deposit-proof-cell，cell data 为存款的证明
@@ -680,7 +680,7 @@ channel 的资产都通过 PCL 守护。增加或减少其中的资产和 channe
 
 ```
 
-### 取款场景
+#### 取款场景
 
 * A 找 B 签发一个取款凭证，用来解锁 PCL 取出里面的部分资产，同时生成一个取款凭证 withdraw-proof-cell，用 since 保证该 cell 在 N 个块内无法被销毁。
 * B 找 A 签发新的 commitment，channel data 中新增字段 included_withdraw。balance 为计算了取款的新 balance，included_withdraw 中包含了 withdraw-proof-cell。
