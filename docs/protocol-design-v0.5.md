@@ -1,0 +1,1070 @@
+# Fiber Network Protocol Design V0.5
+
+## Open Channel
+
+Alice and Bob agree to open a channel for mutual payment in the next period of time.
+
+### Off-chain Negotiate
+
+1. Alice sended a open-channel-request to Bob
+
+   ```
+   struct OpenChannelRequest {
+       requester_pubkey_hash: Byte32;
+       requester_deposit_amount: uint128;
+       asset_type: AssetType;
+       sinces: (uint16, uint16);  // (htlc_since, update_since)
+       max_update_times: uint8;
+   }
+   
+   enum AssetType {
+   		CKB(byte),
+   		SUDT(Byte32)
+   }
+   ```
+
+2. Bob responsed to the request
+
+   ```
+   struct OpenChannelResponse {
+   		responser_pubkey_hash: Byte32;
+   		responser_deposit_amount: uint128;
+   }
+   ```
+
+3. Alice constructed open-channel-tx and signed it, then sended raw-tx and signature to Bob
+
+   ```
+   - inputs
+     - alice provide capacity cell
+       - capacity: > 100 CKB
+       - lockscript: alice
+     - bob provide capacity cell
+       - capacity: > 200 CKB
+       - lockscript: bob
+   - outputs
+     - channel cell
+       - typescript: PCT
+         - args: channel_id
+       - lockscript: anyone can unlock
+       - data
+         - fixed
+           - asset_type: CKB
+           - sinces: (12000, 1000)  // (htlc_since, update_since)
+           - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+         - dynamic
+           - status: OPENING
+           - version: 0
+           - balances: (100 CKB, 200 CKB)
+           - htlcs: none
+           - settled_access: none
+           - remain_update_times: (10, 10)
+           - active_since: 0  // 0 means htlc_since, 1 means update_since
+     - asset cell
+       - capacity: 300 CKB
+       - lockscript: PCL
+           - args: hash of PCT script
+     - ckb change cell
+       - lockscript: alice
+     - ckb change cell
+       - lockscript: bob
+       
+   struct PaymentChannelCellData {
+           status: ChannelStatus;
+           version: uint64;
+           pubkey_hashes: (Byte32, Byte32);
+           asset_type: AssetType;
+           balances: (uint128, uint128);
+           htlcs: Option<HTLCs>;
+           settled_htlcs: Option<Bitmap>;
+           settled_access: Option<SettledAccess>;
+           remain_update_times: (uint8, uint8);
+           sinces: (uint16, uint16);  // (htlc_since, update_since)
+           active_since: uint8 // 0 means htlc_since, 1 means update_since
+   }
+   
+   enum ChannelStatus {
+           OPENING,
+           CLOSING,
+           SETTLING
+   }
+   
+   struct HTLCs {
+           length: uint16;
+           merkle_root: Byte32;
+   }
+   
+   struct SettledAccess {
+           deposits: [Outpoints];
+           withdrawals: [Outpoints];
+   }
+
+4. Bob verified received tx, then signed and sended it.
+
+### On-chain Scripts
+
+1. PCT (Payment Channel Cell Typescript)
+
+    - verify channel_id == hash(inputs[0], outputs_index)
+
+   > Other states will be verified by participants during off-chain negotiate stage
+
+2. PAL (Payment Channel Asset Cell Lockscript)
+
+    - manage channel asset cell
+
+   > Lockscript in tx outputs will not be executed
+
+## Off-chain Payment
+
+### Straight Payment
+
+Alice wanted to pay 10 CKB to Bob:
+
+1. Alice constructed a new payment commitment, signed it and sended to Bob
+
+   ```
+   struct PaymentCommitmentToSign {
+   		channel_id: Byte32;
+   		version: uint64;
+   		balances: (uint128, uint128);  // (participant0_balance, participant0_balance);
+   		htlcs: Option<HTLCs>;
+   		settled_accesses: Option<SettledAccess>;
+   }
+   
+   struct HTLCs {
+   		length: uint16;  // length of htlcs
+   		merkle_root: Byte32;  // merkle tree: https://github.com/nervosnetwork/merkle-tree
+   }
+   
+   struct SettledAccess {
+   		deposits: [Outpoints];
+   		withdrawals: [Outpoints];
+   }
+   
+   struct PaymentCommitment {
+   		raw_data: PaymentCommitmentToSign;
+   		signatures: (Byte32, Byte32); // (participant0_signature, participant1_signature)
+   }
+   
+   // commitment alice sended to bob
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				version: 1,
+   				balances: [90 CKB, 210 CKB],
+   				htlcs: none,
+   				settled_access: none,
+   		},
+   		signatures: [alice_signature, none]
+   }
+   ```
+
+2. Bob verified the commitment, signed it and sended signature to Alice
+
+   Bob updated the latest commitment version
+
+3. Alice received the signature, verified and updated the latest commitment version
+
+   If Bob didn't send signature back, Alice would not sign any new commitment. Alice also could unilaterally close channel.
+
+### HTLC Payment
+
+Bob wanted to pay 10 CKB with HTLC to Alice:
+
+#### Update commitment to a new version
+
+1. Bob constructed a new version of payment commitment, signed it and sended to Bob
+
+   Merkle tree we used: https://github.com/nervosnetwork/merkle-tree .
+
+```
+struct HTLC {
+		amount: uint128;
+		to: uint8;
+		hash_lock: Byte32;
+		last_unlock_block_number: uint64;
+}
+
+// commitment bob sended to alice
+{
+		raw_data: {
+				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+				version: 2,
+				balances: [90 CKB, 200 CKB],
+				htlcs: {
+						length: 1,
+						merkle_root: 0x8292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+				},
+				settled_access: none,
+		},
+		signatures: (none, bob_signature)
+}
+```
+
+2. Alice signed the commitment and sended signature to Bob
+
+   Alice updated the latest commitment version.
+
+3. Bob received the  signature and updated the latest commitment version
+
+   If Alice didn't send signature back, Bob would not sign any new commitment. Bob also could unilaterally close channel.
+
+#### Settle HTLC
+
+If Alice revealed the preimage to Bob:
+
+1. Alice constructed a new payment commitment, signed it and sended to Bob
+
+   ```
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				version: 3,
+   				balances: [100 CKB, 200 CKB],
+   				htlcs: none,
+   				settled_access: none,
+   		},
+   		signatures: (alice_signature, none)
+   }
+   ```
+
+2. Bob signed the new commitment, sended signature to Alice, and updated the latest commitment version
+
+3. Alice received the signature and updated the latest commitment version
+
+   If Bob did not sign and send signature to Alice, Alice could unilaterally close channel and settle the HTLC on-chain.
+
+
+
+If Alice didn't reveal the preimage to Bob, and the HTCL was timeout
+
+1. Bob constructed a new payment commitment, signed it and sended to Alice
+
+   ```
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				version: 3,
+   				balances: [90 CKB, 210 CKB],
+   				htlcs: none,
+   				settled_access: none,
+   		},
+   		signatures: (none, bob_signature)
+   }
+   ```
+
+2. Alice signed the new commitment, sended signature to Bob, and updated the latest commitment version
+
+3. Bob received the signature and updated the latest commitment version
+
+   If Alice didn't send signature back, Bob would not sign any new commitment. Bob also could unilaterally close channel.
+
+#### HTLC Proof
+
+If participant revealed the preimage, but the counterparty refused to sign the new payment commitment. The participant could send a create-htlc-proof-tx on-chain, and the htlc could be settled on-chain when closing channel.
+
+```
+- inputs
+	- provide capacity cell
+- outputs
+	- htlc proof cell
+		- data
+			- preimage
+		- lockscript
+			- args: preimage collector id
+			- logic
+				- can not be destroyed unless merged into preimage collector cell
+```
+
+We designed preimage collector cell to recycle htlc proof cell, a recycle-htlc-proof-tx could be constructed as follow:
+
+```
+- header_deps
+	- header deps for htlc proof cell
+- inputs
+	- htlc proof cell
+		- data
+			- preimage
+		- lockscript
+			- args: preimage cell id
+			- logic
+				- can not be destroyed unless merged into preimage cell	
+  - preimage collector cell
+  	- data
+  		- merkle_root  // https://github.com/jjyr/restricted-sparse-merkle-tree
+  			- key: lock_hash
+  			- value: (unlock_preimage, unlock_time)
+    - typescrit
+    	- args: collector_id // similar to type_id
+    	- logic
+    		- verify htlc proof merged into merkle tree
+    		- input since should be greater than 5 when consumed
+- outputs
+	- preimage collector cell
+```
+
+Both htlc proof cell and preimage collector cell can be used to settle htlc (refer to unilaterally close channel).
+
+## Deposit
+
+Alice wanted to deposit 100 CKB to channel:
+
+### Create Deposit Proof Cell
+
+1. Alice send a deposit-channel-tx on-chain
+
+   ```
+   - inputs
+   		- provide capacity cell
+   				- capacity: > 100 CKB
+   				- lockscript: alice
+   		- channel cell
+   				- data
+   		    	- status: OPENING
+       - asset cell
+           - capacity: 300 CKB
+           - lockscript: PAL
+           	- verify channel cell status == OPENING
+   - outputs
+   		- channel cell
+   				- typescript: PCT
+   					- args: channel_id
+   					- logic
+   						- verify channel cell not changed
+   				- data
+   		    	- status: OPENING
+       - asset cell
+           - capacity: 400 CKB
+           - lockscript: PAL
+       - deposit proof cell
+       		- typescript: DPT
+       			- args: channel_id
+       			- logic
+       				- verify self script args == PCT args
+       				- verify asset_type && amount
+           - data
+             - asset_type: CKB
+             - amount: 100 CKB
+             - depositor: 0  // index of pubkey_hashes
+   
+   ```
+
+2. Alice constructed a new payment commitment, signed it and sended to Bob
+
+   ```
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				version: 4,
+   				balances: [200 CKB, 200 CKB],
+   				htlcs: none,
+   				settled_access: {
+   						deposits: [outpoint of deposit proof cell,],
+   						withdrawals: [],
+   				},
+   		},
+   		signatures: (alice_signature, none)
+   }
+   ```
+
+
+
+3. Bob verified and signed the received commitment, then sended signature to Alice
+
+   Bob updated the latest commitment version
+
+4. Alice received the signature and updated the latest commitment version
+
+   If Bob didn't send signature back, Alice would not sign any new commitment. Alice also could unilaterally close channel.
+
+### Recycle Deposit Proof Cell
+
+1. Alice destroyed deposit-proof-cell and recycled capacity, then constructed a  new payment commitment, signed and sended to Bob
+
+   ```
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				version: 5,
+   				balances: [200 CKB, 200 CKB],
+   				htlcs: none,
+   				settled_access: none,
+   		},
+   		signatures: (alice_signature, none)
+   }
+   ```
+
+2. Bob verified and signed the received commitment, then sended signature to Alice
+
+   Bob updated the latest commitment version
+
+3. Alice received the signature and updated the latest commitment version
+
+   If Bob didn't send signature back, Alice would not sign any new commitment. Alice also could unilaterally close channel.
+
+### Limit the `settled_access` data size
+
+In case of oversized commitment, participants should limit the max length of `deposits`. In other words, depositor should recycle deposit-proof-cell at the right time.
+
+## Withdraw
+
+Alice wanted to withdraw 100 CKB from channel:
+
+### Create Withdrawal Proof Cell
+
+1. Alice constructed and signed a withdrawal commitment, then sended it to Bob
+
+   ```
+   struct WithdrawalCommitmentToSign  {
+   		channel_id: Byte32;
+   		amount: uint128;
+   		withdrawer: uint8; index of pubkey_hashes
+   }
+   
+   struct WithdrawalCommitment  {
+   		raw_data: WithdrawalCommitmentToSign;
+   		signatures: (Bytes, Bytes); // [participant0_signature, participant1_signature]
+   }
+   
+   // commitment alice sended to bob
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				amount: 100,
+   				withdrawer: 0,
+   		},
+   		signatures: [alice_signature, none]
+   }
+   ```
+
+2. Bob verified and signed the commitment, then sended the signature to Alice
+
+3. Alice sended a withdraw-channel-tx on-chain
+
+   Alice should send this tx before a certain time, otherwise Bob should close channel.
+
+   ```
+   -inputs	
+     	- channel cell
+   				- data
+   		    	- status: OPENING
+       - asset cell
+           - capacity: 400 CKB
+           - lockscript: PAL
+           	- verify channel cell status == OPENING
+           	- verify witness
+   - outputs
+   		- channel cell
+   				- typescript: PCT
+   					- args: channel_id
+   					- logic
+   						- verify channel cell not changed
+   				- data
+   		    	- status: OPENING
+       - asset cell
+           - capacity: 300 CKB
+           - lockscript: PAL
+       - withdrawal proof cell
+       		- typescript: WPT
+       			- args: channel_id
+       			- logic
+       				- verify self script args == PCT args
+       				- verify amount && withdrawer
+       				- this cell can not be consumed before N blocks
+           - data  
+             - amount: 100 CKB
+             - withdrawer: 0  // index of pubkey_hashes
+       - recipient cell
+           - capacity: 100 CKB
+           - lockscript: alice
+   - witnesses
+       - withdrawal_commitment
+   ```
+
+4. Bob constructed and signed a new payment commitment, then sended it to Alice
+
+   ```
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				version: 6,
+   				balances: [100 CKB, 200 CKB],
+   				htlcs: none
+   				settled_access: {
+   						deposits: [],
+   						withdrawals: [outpoint of withdrawal proof cell,],
+   				}
+   		},
+   		signatures: (none, bob_signature)
+   }
+   ```
+
+
+
+5. Alice received and verified the commitment, then signed it and sended signature to Bob
+
+   Alice updated the latest commitment version.
+
+6. Bob received the signature and updated the latest commitment version
+
+   If Alice didn't send signature back, Bob would unilaterally close channel in case of withdrawal proof cell was destroyed after N blocks.
+
+### Recycle Withdrawal Proof Cell
+
+1. Alice destroyed withdrawal-proof-cell and recycled capacity, then constructed a  new payment commitment, signed and sended to Bob
+
+   ```
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				version: 7,
+   				balances: [100 CKB, 200 CKB],
+   				htlcs: none,
+   				settled_access: none,
+   		},
+   		signatures: (alice_signature, none)
+   }
+   ```
+
+2. Bob verified and signed the received commitment, sended signature to Alice
+
+   Bob updated the latest commitment version
+
+3. Alice received the signature and updated the latest commitment version
+
+   If Bob didn't send signature back, Alice would not sign any new commitment. Alice also could unilaterally close channel.
+
+### Limit the `settled_access` data size
+
+In case of oversized commitment, participants should limit the max length of `withdrawals`. In other words, withdrawer should recycle withdrawal-proof-cell at the right time.
+
+## Bilaterally Close Channel
+
+Alice wanted to close channel:
+
+1.  Alice constructed a bilaterally close commitment, then signed it and sended to Bob
+
+   ```
+   struct BilaterallyCloseCommitmentToSign {
+   		channel_id: Byte32;
+   		asset_type: AseetType;
+   		balances: (uint128, uint128);
+   }
+   
+   struct BilateralCloseCommitment {
+   		raw_data: BilateralCloseCommitmentToSign;
+   		signatures: (Bytes, Bytes);
+   }
+   
+   // commitment alice sended to bob
+   {
+   		raw_data: {
+   				channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03,
+   				asset_type: CKB,
+   				balances: (100, 200)
+   		},
+   		signatures: (signature by alice, none)
+   }
+   ```
+
+2. Bob received and verified the commitment, then signed it and send bilaterally-close-channel-tx on-chain
+
+   ```
+   - inputs
+   		- provide fee cell
+   		- channel cell
+   				- data
+   		    	- status: OPENING
+   		    - typescript: PCT
+   		    	- verify witness
+   		    	- verify distributed assets
+       - asset cell
+           - capacity: 300 CKB
+           - lockscript: PAL
+           	- verify related channel cell in inputs
+   - outputs
+   		- alice asset cell
+   				- capacity: 100 CKB
+   				- lockscript: alice
+   		- bob asset cell
+   				- capacity: 200 CKB
+   				- lockscript: bob
+   		- capacity change cell
+   - witnesses
+   		- bilaterally_close_commitment
+   ```
+
+## Unilaterally Close Channel
+
+### Close Channel
+
+Any participant could send a unilaterally-close-channel tx meanwhile submit payment commitment:
+
+```
+- inputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+      - logic
+      	- verify witness
+      	- verify channel cell state change
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: OPENING
+        - version: 0
+        - balances: (100 CKB, 200 CKB)
+        - htlcs: none
+        - settled_htlcs: none
+        - settled_access: none
+        - remain_update_times: (10, 10)
+        - active_since: 0  // 0 means htlc_since, 1 means update_since
+- outputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 9
+        - balances: (100 CKB, 100 CKB)
+        - htlcs
+        	- length: 5
+        	- merkle_root: 0xffff5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: none
+        - settled_access
+        	- deposits: [outpoint0]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (9, 10)
+        - active_since: 0  // 0 means htlc_since, 1 means update_since
+- witnesses  
+	- close_channel_witness	
+    - payment_commitment
+      - raw_data
+        - channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03
+        - version: 9
+        - balances: (100, 100)
+        - htlcs
+          - length: 5
+          - merkle_root: 0xffff5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_access
+          - deposits: [outpoint0]
+          - withdrawals: [outpoint0]
+      - signatures
+    - submitter signature: alice_signature
+```
+
+The channel status became `CLOSING` and states in payment commitment were stored in output channel cell data.
+
+### Update Channel
+
+Participants could send a update-channel-tx in this stage. A update-channel-tx could update payment commitment version, htlc proofs, access proofs or all of them.
+
+```
+struct UpdateChannelWitness {
+		version: Option<UpdateVersionWitness>;
+		htlc_proof: Option<UpdateHtlcProofsWitness>;
+		access_proof: Option<UpdateAccessProofsWitness>;
+}
+
+struct UpdateVersionWitness {
+		payment_commitment: PaymentCommitment;
+		updater_signature: Bytes;
+}
+
+struct UpdateHtlcProofsWitness {
+		raw_data: [Htcl];
+		merkle_proof: MerkleProof;
+		preimage_proofs: [PreimageProof];
+		updater_signature: Bytes;
+}
+
+enum PreimageProof {
+		DirectProof(PreimageDirectProof),
+		PreimageCollector(PreimageCollectorProof),
+}
+
+struct PreimageDirectProof {
+		cell_deps_index: uint8;
+		header_deps_index: uint8;
+}
+
+struct PreimageCollectorProof {
+		cell_deps_index: uint8;
+		merkle_proof: MerkelProof;
+		raw_data:
+}
+
+struct UpdateAccessProofsWitness {
+		cell_deps_index: [uint8];
+		updater_signature: Bytes;
+}
+```
+
+#### Update Version
+
+The participant could update channel with newer commitment if the counterparty submitted the outdated version when closing channel.
+
+```
+// bob updated newer commitment
+- inputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+      - logic
+      	- verify witness
+      	- verify channel cell state change
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 9
+        - balances: (100 CKB, 100 CKB)
+        - htlcs
+        	- length: 5
+        	- merkle_root: 0xffff5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: none
+        - settled_access
+        	- deposits: [outpoint0]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (9,10)
+        - active_since: 0  // 0 means htlc_since, 1 means update_since
+- outputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 10
+        - balances: (100 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: none
+        - settled_access
+        	- deposits: [outpoint0]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (9, 9)
+        - active_since: 0  // 0 means htlc_since, 1 means update_since
+- witnesses  
+	- update_channel_witness
+		- update_version_witness
+      - payment_commitment
+        - raw_data
+          - channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03
+          - version: 10
+          - balances: (100, 150)
+          - htlcs
+            - length: 3
+            - merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+          - settled_access
+            - deposits: [outpoint0]
+            - withdrawals: [outpoint0]
+        - signatures
+      - updater_signature: bob_signature
+    - update_htlc_proofs_witness: none
+    - update_access_proofs_witness: none
+```
+
+`version`, `balances`, `htlcs` and `settled_access` would be reset according to the new commitment. `settled_htlcs` would be reset to `none` and `active_since` to `0`.
+
+#### Update HTLC
+
+If the htlc proof cell not existed on chain, the participants should send a create-htlc-proof-tx on-chain right now.
+
+If the htlc proof cell existed on chain, but the related header was immature. Participants could wait for the header matured, and after that send a update-channel-tx to update htlc proof.
+
+When participants sended a update-channel-tx, the submitted htlc proofs would be settled immediately in this tx(htlc amount would be added to balances). The settled htlcs would be recorded in `settled_htlcs` in case of duplicated settling.
+
+```
+// alice updated htlc proof
+- header_deps
+	- htlc0_proof_cell related header
+- cell_deps
+	- htlc0_proof_cell
+- inputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+      - logic
+      	- verify witness
+      	- verify channel cell state change
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 10
+        - balances: (100 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: none
+        - settled_access
+        	- deposits: [outpoint0]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (9, 9)
+        - active_since: 0  // 0 means htlc_since, 1 means update_since
+- outputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 10
+        - balances: (110 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: 0b00000001
+        - settled_access
+        	- deposits: [outpoint0]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (8, 9)
+        - active_since: 1  // 0 means htlc_since, 1 means update_since
+- witnesses  
+	- update_channel_witness
+		- update_version_witness: none
+		- update_htlc_proofs_witness
+			- raw_data
+			  - amount: 10
+        - to: 0
+        - hash_lock: 0x66665cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - last_unlock_block_number: 10000
+      - htlc0 merkle proof
+			- preimage_proofs
+				- direct_proof
+					- cell_deps_index: [0]
+					- header_deps_index: [0]
+      - updater signature: alice_signature
+    - update_access_proofs_witness: none
+```
+
+#### Update Access
+
+Access proofs(deposit/withdrawal proofs) should be submitted in this stage, and the access would be directly settled to `balances` ,  related proofs would be recorded in `settled_access` in case of duplicated settling.
+
+```
+// alice updated access proof
+- cell_deps
+	- deposit_proof_cell0 (alice deposit 10)
+	- deposit_proof_cell1 (alice deposit 10)
+- inputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+      - logic
+      	- verify witness
+      	- verify channel cell state change
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 10
+        - balances: (110 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: none
+        - settled_access
+        	- deposits: [outpoint0]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (8, 9)
+        - active_since: 0  // 0 means htlc_since, 1 means update_since
+- outputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 10
+        - balances: (130 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: 0b00000001
+        - settled_access
+        	- deposits: [outpoint0, outpoint1, outpoint2]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (7, 9)
+        - active_since: 1  // 0 means htlc_since, 1 means update_since
+- witnesses  
+	- update_channel_witness
+		- update_version_witness: none
+		- update_htlc_proofs_witness: none
+    - update_access_proofs_witness
+    	- cell_deps_index: [0, 1]
+    	- updater_signature: alice_signature
+```
+
+
+
+### Settle Channel
+
+If we could put `active_since` into channel_cell_input_since, then channel status would become `SETTLING` , in other words, closing period was over. Closing period was determined by update channel times and `sinces` parameter.
+
+The initial value of  `active_since` was  `htlc_since` , `htlc_since` makes sure that participants have enough time to submit htlc proof. When the first htlc proof was settled(or `settled_htlcs` became `some` from `none`), the `active_since` became `update_since`. `update_since` is less than `htlc_since`, in order to accelerate `CLOSING` stage. E.g. `htlc_since` could be 12000(greater than 4 epoches), `update_since` could be 1000(much less than `htlc_since`).
+
+If participants had unproved htlcs(need  refund), it's time to submit them in this stage. And the `settled_htlcs` would record settled unproved htlcs, so if the lowest `htlcs_length` bits of  `settled_htlcs` became 0b1, we knew all the htlcs was settled, channel cell and asset cell could be destroyed.
+
+Alice submitted unproved htlc and got all her asset back.
+
+```
+- inputs
+  - channel cell
+  	- since: 1000
+    - typescript: PCT
+      - args: channel_id
+      - logic
+      	- verify witness
+      	- verify channel cell state change
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 10
+        - balances: (130 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: 0b00000001
+        - settled_access
+        	- deposits: [outpoint0,  outpoint1, outpoint2]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (7, 9)
+        - active_since: 1  // 0 means htlc_since, 1 means update_since
+  - asset cell
+  	- capacity: 320 CKB
+  	- lockscript: PAL
+- outputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: SETTLING
+        - version: 10
+        - balances: (0 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: 0b00000011
+        - settled_access
+        	- deposits: [outpoint0, outpoint1, outpoint2]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (7, 9)
+        - active_since: 1  // 0 means htlc_since, 1 means update_since
+  - asset cell
+  	- capacity: 320 - 130 - 10 = 180 CKB
+  - alice asset cell
+  	- capacity: 130 + 10 = 140 CKB
+  	- lockscript: alice
+- witnesses  
+	- settle_channel_witness
+    - unproved_htlc1
+    	- raw_data
+    		- amount: 10
+        - to: 0
+        - hash_lock: 0x66665cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - last_unlock_block_number: 10000
+    	- merkle_proof1
+```
+
+At last, Bob submitted the last unproved htlc and got all his asset back.
+
+```
+- inputs
+  - channel cell
+    - typescript: PCT
+      - args: channel_id
+      - logic
+      	- verify witness
+      	- verify channel cell state change
+    - lockscript: anyone can unlock
+    - data
+      - fixed
+        - asset_type: CKB
+        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
+      - dynamic
+        - status: CLOSING
+        - version: 10
+        - balances: (0 CKB, 150 CKB)
+        - htlcs
+        	- length: 3
+        	- merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - settled_htlcs: 0b00000011
+        - settled_access
+        	- deposits: [outpoint0,  outpoint1, outpoint2]
+        	- withdrawals: [outpoint0]
+        - remain_update_times: (7, 9)
+        - active_since: 1  // 0 means htlc_since, 1 means update_since
+  - asset cell
+  	- capacity: 180 CKB
+  	- lockscript: PAL
+- outputs
+  - bob asset cell
+  	- capacity: 150 + 30 = 180 CKB
+  	- lockscript: bob
+- witnesses  
+	- settle_channel_witness
+    - unproved_htlc2
+    	- raw_data
+    		- amount: 30
+        - to: 1
+        - hash_lock: 0x77775cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+        - last_unlock_block_number: 10000
+    	- merkle_proof2
+```
+
+
+
+
