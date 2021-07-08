@@ -1,4 +1,4 @@
-Table of Contents
+Fiber Network Protocol Design V0.5
 =================
 
 * [Fiber Network Protocol Design V0.5](#fiber-network-protocol-design-v05)
