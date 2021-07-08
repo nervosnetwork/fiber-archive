@@ -1009,7 +1009,7 @@ Alice submitted unproved htlc and got all her asset back.
 ```
 - inputs
   - channel cell
-    - since: 1000
+    - since: 12000
     - typescript: PCT
     - lockscript: anyone can unlock
     - data
