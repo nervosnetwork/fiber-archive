@@ -27,7 +27,7 @@ Fiber Network Protocol Design V0.5
             * [Update HTLC](#update-htlc)
             * [Update Access](#update-access)
         * [Settle Channel](#settle-channel)
-    * [Summarize Channel State Transition](#summarize-channel-state-transition)
+    * [Channel Cell Transition Witness](#channel-cell-transition-witness)
     
 # Fiber Network Protocol Design V0.5
 
@@ -1146,12 +1146,14 @@ At last, Bob submitted the last unproved htlc and got all his asset back.
 - PCAL
    - verify inputs contained related channel cell
 
-## Summarize Channel State Transition
+## Channel Cell Transition Witness
 
-The payment channel state transition and the trigger witness in summary:
+Put witness in different channel-cell-transition transactions together:
 
 ```
-enum ChannelStateTransitionWitness {
+enum ChannelCellTransitionWitness {
+    DepositChannel(());  // OPENING -> OPENING
+    WithdrawChannel(WithdrawalCommitment);  // OPENING -> OPENING
     BilaterallyClose(BilaterallyCloseChannelCommitment);  // OPENING -> DESTROYED
     UnilaterallyClose(UnilaterallyCloseChannelWitness);  // OPENING -> CLOSING
     UpdateChannel(UpdateChannelWitness);  // CLOSING -> CLOSING
