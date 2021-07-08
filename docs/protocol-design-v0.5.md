@@ -50,8 +50,8 @@ Alice and Bob agreed to open a channel for mutual payment in the next period of 
        requester_pubkey_hash: Byte32;
        requester_deposit_amount: uint128;
        asset_type: AssetType;
-       sinces: (uint16, uint16);  // (htlc_since, update_since)
-       max_update_times: uint8;  // sinces and max_update_times determines the max length of closing period
+       since: uint16;  // the input since of channel cell when transit state to SETTLING from CLOSING
+       max_update_times: uint8;  // since and max_update_times determines the max length of closing period
    }
    
    enum AssetType {
@@ -87,7 +87,7 @@ Alice and Bob agreed to open a channel for mutual payment in the next period of 
        - data
          - fixed
            - asset_type: CKB
-           - sinces: (12000, 1000)  // (htlc_since, update_since)
+           - since: 12000 
            - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
          - dynamic
            - status: OPENING
@@ -97,7 +97,6 @@ Alice and Bob agreed to open a channel for mutual payment in the next period of 
            - settled_htlcs: none
            - settled_access: none
            - remain_update_times: (10, 10)
-           - active_since: 0  // 0 means htlc_since, 1 means update_since
      - asset cell
        - capacity: 300 CKB
        - lockscript: PCAL
@@ -117,8 +116,7 @@ Alice and Bob agreed to open a channel for mutual payment in the next period of 
         settled_htlcs: Option<Bitmap>;
         settled_access: Option<SettledAccess>;
         remain_update_times: (uint8, uint8);
-        sinces: (uint16, uint16);  // (htlc_since, update_since)
-        active_since: uint8 // 0 means htlc_since, 1 means update_since
+        since: uint16;  // the input since of channel cell when transit state to SETTLING from CLOSING 
    }
    
    enum ChannelStatus {
@@ -668,7 +666,7 @@ Alice sended a unilaterally-close-channel tx meanwhile submitted payment commitm
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: OPENING
@@ -678,7 +676,6 @@ Alice sended a unilaterally-close-channel tx meanwhile submitted payment commitm
         - settled_htlcs: none
         - settled_access: none
         - remain_update_times: (10, 10)
-        - active_since: 0  // 0 means htlc_since, 1 means update_since
 - outputs
   - channel cell
     - typescript: PCT
@@ -686,7 +683,7 @@ Alice sended a unilaterally-close-channel tx meanwhile submitted payment commitm
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -700,7 +697,6 @@ Alice sended a unilaterally-close-channel tx meanwhile submitted payment commitm
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
         - remain_update_times: (9, 10)
-        - active_since: 0  // 0 means htlc_since, 1 means update_since
 - witnesses  
   - unilaterally_close_channel_witness	
     - payment_commitment
@@ -793,7 +789,7 @@ The participant could update channel with newer commitment if the counterparty s
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -807,7 +803,6 @@ The participant could update channel with newer commitment if the counterparty s
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
         - remain_update_times: (9,10)
-        - active_since: 0  // 0 means htlc_since, 1 means update_since
 - outputs
   - channel cell
     - typescript: PCT
@@ -815,7 +810,7 @@ The participant could update channel with newer commitment if the counterparty s
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -829,7 +824,6 @@ The participant could update channel with newer commitment if the counterparty s
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
         - remain_update_times: (9, 9)
-        - active_since: 0  // 0 means htlc_since, 1 means update_since
 - witnesses  
   - update_channel_witness
 	- update_version_witness
@@ -855,7 +849,7 @@ The participant could update channel with newer commitment if the counterparty s
   - verify channel cell state change
     - newer commitment was applied to channel cell
    
-`version`, `balances`, `htlcs` and `settled_access` would be reset according to the new commitment. `settled_htlcs` would be reset to `none` and `active_since` to `0`.
+`version`, `balances`, `htlcs`, `settled_access` and `settled_htlcs` would be reset according to the new commitment and related proofs.
 
 #### Update HTLC
 
@@ -878,7 +872,7 @@ When participants sended a update-channel-tx, the submitted htlc proofs would be
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -892,7 +886,6 @@ When participants sended a update-channel-tx, the submitted htlc proofs would be
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
         - remain_update_times: (9, 9)
-        - active_since: 0  // 0 means htlc_since, 1 means update_since
 - outputs
   - channel cell
     - typescript: PCT
@@ -900,7 +893,7 @@ When participants sended a update-channel-tx, the submitted htlc proofs would be
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -914,7 +907,6 @@ When participants sended a update-channel-tx, the submitted htlc proofs would be
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
         - remain_update_times: (8, 9)
-        - active_since: 1  // 0 means htlc_since, 1 means update_since
 - witnesses  
   - update_channel_witness
     - update_version_witness: none
@@ -954,7 +946,7 @@ Access proofs(deposit/withdrawal proofs) also should be submitted in this stage,
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -968,7 +960,6 @@ Access proofs(deposit/withdrawal proofs) also should be submitted in this stage,
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
         - remain_update_times: (8, 9)
-        - active_since: 1  // 0 means htlc_since, 1 means update_since
 - outputs
   - channel cell
     - typescript: PCT
@@ -976,7 +967,7 @@ Access proofs(deposit/withdrawal proofs) also should be submitted in this stage,
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -990,7 +981,6 @@ Access proofs(deposit/withdrawal proofs) also should be submitted in this stage,
           - deposits: [outpoint0, outpoint1, outpoint2]
           - withdrawals: [outpoint0]
         - remain_update_times: (7, 9)
-        - active_since: 1  // 0 means htlc_since, 1 means update_since
 - witnesses  
   - update_channel_witness
     - update_version_witness: none
@@ -1008,11 +998,9 @@ Access proofs(deposit/withdrawal proofs) also should be submitted in this stage,
 
 ### Settle Channel
 
-If we could put `active_since` into channel_cell_input_since, then channel status would become `SETTLING` from `CLOSING` , in other words, closing period was over. Closing period was determined by update channel times and `sinces` parameter.
+If we could put `since` into channel_cell_input_since, then channel status would become `SETTLING` from `CLOSING` , in other words, closing period was over. Closing period was determined by update channel times and `since` parameter.
 
-The initial value of `active_since` was  `htlc_since` , `htlc_since` makes sure that participants have enough time to submit htlc proof. When the first htlc proof was settled(or `settled_htlcs` became `some` from `none`), the `active_since` became `update_since`. `update_since` is less than `htlc_since`, in order to accelerate `CLOSING` stage. E.g. `htlc_since` could be 12000(greater than 4 epoches), `update_since` could be 1000(much less than `htlc_since`).
-
-> We could only use `htlc_since`, but the additional `updata_since` could accelerate `CLOSING` period.
+`since` makes sure that participants have enough time to submit any witness(including htlc proof). E.g. `since` could be 12000(greater than 4 epoches).
 
 If participants had unproved htlcs(need  refund), it's time to submit them in this stage. And the `settled_htlcs` would record the settled unproved htlcs, so if the lowest `htlcs_length` bits of  `settled_htlcs` became 0b1, we knew all the htlcs was settled, channel cell and asset cell could be destroyed.
 
@@ -1027,7 +1015,7 @@ Alice submitted unproved htlc and got all her asset back.
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: CLOSING
@@ -1041,7 +1029,6 @@ Alice submitted unproved htlc and got all her asset back.
           - deposits: [outpoint0,  outpoint1, outpoint2]
           - withdrawals: [outpoint0]
         - remain_update_times: (7, 9)
-        - active_since: 1  // 0 means htlc_since, 1 means update_since
   - asset cell
   	- capacity: 320 CKB
   	- lockscript: PCAL
@@ -1052,7 +1039,7 @@ Alice submitted unproved htlc and got all her asset back.
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: SETTLING
@@ -1066,7 +1053,6 @@ Alice submitted unproved htlc and got all her asset back.
           - deposits: [outpoint0, outpoint1, outpoint2]
           - withdrawals: [outpoint0]
         - remain_update_times: (7, 9)
-        - active_since: 1  // 0 means htlc_since, 1 means update_since
   - asset cell
     - capacity: 320 - 130 - 10 - 150 = 30 CKB
     - lockscript: PCAL
@@ -1118,7 +1104,7 @@ At last, Bob submitted the last unproved htlc and got all his asset back.
     - data
       - fixed
         - asset_type: CKB
-        - sinces: (12000, 1000)  // (htlc_since, update_since)
+        - since: 12000
         - pubkey_hashes: [pubkey_hash of alice, pubkey_hash of bob]
       - dynamic
         - status: SETTLING
@@ -1132,7 +1118,6 @@ At last, Bob submitted the last unproved htlc and got all his asset back.
           - deposits: [outpoint0,  outpoint1, outpoint2]
           - withdrawals: [outpoint0]
         - remain_update_times: (7, 9)
-        - active_since: 1  // 0 means htlc_since, 1 means update_since
   - asset cell
     - capacity: 30 CKB
     - lockscript: PCAL
