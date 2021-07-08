@@ -655,7 +655,7 @@ Alice wanted to close channel:
 
 ### Close Channel
 
-Alice sended a unilaterally-close-channel tx meanwhile submit payment commitment:
+Alice sended a unilaterally-close-channel tx meanwhile submitted payment commitment:
 
 ```
 - inputs
@@ -690,12 +690,12 @@ Alice sended a unilaterally-close-channel tx meanwhile submit payment commitment
         - version: 9
         - balances: (100 CKB, 100 CKB)
         - htlcs
-        	- length: 5
-        	- merkle_root: 0xffff5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+          - length: 5
+          - merkle_root: 0xffff5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
         - settled_htlcs: none
         - settled_access
-        	- deposits: [outpoint0]
-        	- withdrawals: [outpoint0]
+          - deposits: [outpoint0]
+          - withdrawals: [outpoint0]
         - remain_update_times: (9, 10)
         - active_since: 0  // 0 means htlc_since, 1 means update_since
 - witnesses  
@@ -739,7 +739,7 @@ struct UpdateVersionWitness {
 
 struct UpdateHtlcProofsWitness {
      raw_data: [Htcl];
-     merkle_proof: MerkleProof;
+     merkle_proof: MerkleProof; // A merkle proof can prove multiple nodes
      preimage_proofs: [PreimageProof];
      updater_signature: Bytes;
 }
@@ -763,7 +763,7 @@ struct PreimageCollectorProof {
 
 struct RevealedPreimage {
      preimage: Bytes;
-     reveal_time: uint64;
+     revealed_time: uint64;
 }
 
 struct UpdateAccessProofsWitness {
@@ -823,23 +823,23 @@ The participant could update channel with newer commitment if the counterparty s
         - remain_update_times: (9, 9)
         - active_since: 0  // 0 means htlc_since, 1 means update_since
 - witnesses  
-	- update_channel_witness
-	  - update_version_witness
-        - payment_commitment
-          - raw_data
-            - channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03
-            - version: 10
-            - balances: (100, 150)
-            - htlcs
-              - length: 3
-              - merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
-            - settled_access
-              - deposits: [outpoint0]
-              - withdrawals: [outpoint0]
-          - signatures
-        - updater_signature: bob_signature
-      - update_htlc_proofs_witness: none
-      - update_access_proofs_witness: none
+  - update_channel_witness
+	- update_version_witness
+      - payment_commitment
+        - raw_data
+          - channel_id: 0x9292a49e5cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03
+          - version: 10
+          - balances: (100, 150)
+          - htlcs
+            - length: 3
+            - merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
+          - settled_access
+            - deposits: [outpoint0]
+            - withdrawals: [outpoint0]
+        - signatures
+      - updater_signature: bob_signature
+    - update_htlc_proofs_witness: none
+    - update_access_proofs_witness: none
 ```
 #### on-chain scripts
 - PCT
@@ -909,18 +909,18 @@ When participants sended a update-channel-tx, the submitted htlc proofs would be
         - active_since: 1  // 0 means htlc_since, 1 means update_since
 - witnesses  
   - update_channel_witness
-	- update_version_witness: none
-	- update_htlc_proofs_witness
-	  - raw_data
-	    - amount: 10
+    - update_version_witness: none
+    - update_htlc_proofs_witness
+      - raw_data
+        - amount: 10
         - to: 0
         - hash_lock: 0x66665cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
         - last_unlock_block_number: 10000
       - htlc0 merkle proof
-	  - preimage_proofs
-	    - direct_proof
-		  - cell_deps_index: [0]
-		  - header_deps_index: [0]
+      - preimage_proofs
+        - direct_proof
+          - cell_deps_index: [0]
+          - header_deps_index: [0]
       - updater signature: alice_signature
     - update_access_proofs_witness: none
 ```
@@ -1006,14 +1006,14 @@ The initial value of `active_since` was  `htlc_since` , `htlc_since` makes sure 
 
 > We could only use `htlc_since`, but the additional `updata_since` could accelerate `CLOSING` period.
 
-If participants had unproved htlcs(need  refund), it's time to submit them in this stage. And the `settled_htlcs` would record settled unproved htlcs, so if the lowest `htlcs_length` bits of  `settled_htlcs` became 0b1, we knew all the htlcs was settled, channel cell and asset cell could be destroyed.
+If participants had unproved htlcs(need  refund), it's time to submit them in this stage. And the `settled_htlcs` would record the settled unproved htlcs, so if the lowest `htlcs_length` bits of  `settled_htlcs` became 0b1, we knew all the htlcs was settled, channel cell and asset cell could be destroyed.
 
 Alice submitted unproved htlc and got all her asset back.
 
 ```
 - inputs
   - channel cell
-  	- since: 1000
+    - since: 1000
     - typescript: PCT
     - lockscript: anyone can unlock
     - data
@@ -1060,13 +1060,14 @@ Alice submitted unproved htlc and got all her asset back.
         - remain_update_times: (7, 9)
         - active_since: 1  // 0 means htlc_since, 1 means update_since
   - asset cell
-  	- capacity: 320 - 130 - 10 - 150 = 30 CKB
+    - capacity: 320 - 130 - 10 - 150 = 30 CKB
+    - lockscript: PCAL
   - alice asset cell
-  	- capacity: 130 + 10 = 140 CKB
-  	- lockscript: alice
+    - capacity: 130 + 10 = 140 CKB
+    - lockscript: alice
   - bob asset cell
-  	- capacity: 150 CKB
-  	- lockscript: bob  	
+    - capacity: 150 CKB
+    - lockscript: bob  	
 - witnesses  
   - settle_channel_witness
     - unproved_htlcs
@@ -1083,7 +1084,7 @@ struct SettleChannelWitness {
 
 struct UnprovedHtlcs {
    raw_data: [Htlc];
-   merkle_proof: MerkleProof; // One merkle proof can prove multiple nodes
+   merkle_proof: MerkleProof; // A merkle proof can prove multiple nodes
 }
 ```
 #### on-chain scripts
@@ -1125,12 +1126,12 @@ At last, Bob submitted the last unproved htlc and got all his asset back.
         - remain_update_times: (7, 9)
         - active_since: 1  // 0 means htlc_since, 1 means update_since
   - asset cell
-  	- capacity: 30 CKB
-  	- lockscript: PCAL
+    - capacity: 30 CKB
+    - lockscript: PCAL
 - outputs
   - bob asset cell
-  	- capacity: 30 CKB
-  	- lockscript: bob
+    - capacity: 30 CKB
+    - lockscript: bob
 - witnesses  
   - settle_channel_witness
     - unproved_htlcs
