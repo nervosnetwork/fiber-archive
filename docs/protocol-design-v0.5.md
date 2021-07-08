@@ -955,7 +955,7 @@ Access proofs(deposit/withdrawal proofs) also should be submitted in this stage,
         - htlcs
           - length: 3
           - merkle_root: 0x11115cfd3653b242ec93a39a1d9b183ab0e4efd4fc51045b42f10e93cb03ffff
-        - settled_htlcs: none
+        - settled_htlcs: 0b00000001
         - settled_access
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
