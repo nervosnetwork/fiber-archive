@@ -27,6 +27,7 @@ Fiber Network Protocol Design V0.5
             * [Update HTLC](#update-htlc)
             * [Update Access](#update-access)
         * [Settle Channel](#settle-channel)
+    * [Summarize Channel State Transition](#summarize-channel-state-transition)
     
 # Fiber Network Protocol Design V0.5
 
@@ -600,14 +601,14 @@ Alice wanted to close channel:
 1.  Alice constructed a bilaterally close commitment, signed and sended it to Bob
 
    ```
-   struct BilaterallyCloseCommitmentToSign {
+   struct BilaterallyCloseChannelCommitmentToSign {
         channel_id: Byte32;
         asset_type: AseetType;
         balances: (uint128, uint128);
    }
    
-   struct BilateralCloseCommitment {
-        raw_data: BilateralCloseCommitmentToSign;
+   struct BilaterallyCloseChannelCommitment {
+        raw_data: BilaterallyCloseChannelCommitmentToSign;
         signatures: (Bytes, Bytes);
    }
    
@@ -714,7 +715,12 @@ Alice sended a unilaterally-close-channel tx meanwhile submitted payment commitm
           - deposits: [outpoint0]
           - withdrawals: [outpoint0]
       - signatures
-    - submitter signature: alice_signature
+    - closer signature: alice_signature
+    
+struct UnilaterallyCloseChannelWitness {
+    payment_commitment: PaymentCommitment;
+    closer_signature: Bytes;
+}
 ```
 #### on-chain scripts
 - PCT
@@ -1155,4 +1161,15 @@ At last, Bob submitted the last unproved htlc and got all his asset back.
 - PCAL
    - verify inputs contained related channel cell
 
+## Summarize Channel State Transition
 
+The payment channel state transition and the trigger witness in summary:
+
+```
+enum ChannelStateTransitionWitness {
+    BilaterallyClose(BilaterallyCloseChannelCommitment);  // OPENING -> DESTROYED
+    UnilaterallyClose(UnilaterallyCloseChannelWitness);  // OPENING -> CLOSING
+    UpdateChannel(UpdateChannelWitness);  // CLOSING -> CLOSING
+    SettleChannel(SettleChannelWitness);  // CLOSING -> SETTLING, SETTLING -> DESTROYED
+}
+```
