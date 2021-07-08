@@ -215,7 +215,7 @@ Bob wanted to pay 10 CKB with HTLC to Alice:
 #### Update commitment to a new version
 
 1. Bob constructed a new payment commitment, signed and sended it to Bob
-
+   - Merkle tree for htlcs: https://github.com/nervosnetwork/merkle-tree
 ```
 // commitment bob sended to alice
 {
@@ -309,19 +309,19 @@ If participant revealed the preimage, but the counterparty refused to sign the n
 ```
 // create htlc proof tx
 - inputs
-    - provide capacity cell
+  - provide capacity cell
 - outputs
-    - htlc proof cell
-        - data
-            - preimage
-        - lockscript
-            - args: preimage collector id
-            - logic
-                - can not be destroyed unless merged into preimage collector cell
+  - htlc proof cell
+    - data
+      - preimage
+    - lockscript
+      - args: preimage collector id
+      - logic
+        - can not be destroyed unless merged into preimage collector cell
 ```
 
 We designed preimage collector cell to recycle htlc proof cell, a recycle-htlc-proof-tx could be constructed as follow:
-
+  - Sparse Merkle tree for preimages: https://github.com/jjyr/restricted-sparse-merkle-tree
 ```
 // recycle htlc proof tx
 - header_deps
@@ -390,7 +390,8 @@ Alice wanted to deposit 100 CKB to channel:
          - depositor: 0  // index of pubkey_hashes
    
    ```
-
+   
+   #### on-chain scripts
    - PCT
      - verify deposit channel state change
        - status should be OPENING, and channel cell not changed
@@ -524,6 +525,7 @@ Alice wanted to withdraw 100 CKB from channel:
    - witnesses
      - withdrawal_commitment
    ```
+   #### on-chain scripts
    - PCT
      - verify withdrawal commitment
      - verify asset cell withdrawal
@@ -641,6 +643,7 @@ Alice wanted to close channel:
    - witnesses
      - bilaterally_close_commitment
    ```
+   #### on-chain scripts
    - PCT
      - verify status == OPENING
      - verify bilaterally close commitment
@@ -711,6 +714,7 @@ Alice sended a unilaterally-close-channel tx meanwhile submit payment commitment
       - signatures
     - submitter signature: alice_signature
 ```
+#### on-chain scripts
 - PCT
   - verify unilaterally close channel witness
   - verify channel cell state change
@@ -837,6 +841,7 @@ The participant could update channel with newer commitment if the counterparty s
       - update_htlc_proofs_witness: none
       - update_access_proofs_witness: none
 ```
+#### on-chain scripts
 - PCT
   - verify update channel witness
   - verify channel cell state change
@@ -919,7 +924,7 @@ When participants sended a update-channel-tx, the submitted htlc proofs would be
       - updater signature: alice_signature
     - update_access_proofs_witness: none
 ```
-
+#### on-chain scripts
 - PCT
    - verify update channel witness
    - verify channel cell state change
@@ -986,6 +991,7 @@ Access proofs(deposit/withdrawal proofs) also should be submitted in this stage,
       - cell_deps_index: [0, 1]
       - updater_signature: alice_signature
 ```
+#### on-chain scripts
 - PCT
    - verify update channel witness
    - verify channel cell state change
@@ -1030,7 +1036,7 @@ Alice submitted unproved htlc and got all her asset back.
         - active_since: 1  // 0 means htlc_since, 1 means update_since
   - asset cell
   	- capacity: 320 CKB
-  	- lockscript: PAL
+  	- lockscript: PCAL
 - outputs
   - channel cell
     - typescript: PCT
@@ -1080,6 +1086,7 @@ struct UnprovedHtlcs {
    merkle_proof: MerkleProof; // One merkle proof can prove multiple nodes
 }
 ```
+#### on-chain scripts
 - PCT
   - verify settle channel witness
   - verify channel cell state change
@@ -1119,7 +1126,7 @@ At last, Bob submitted the last unproved htlc and got all his asset back.
         - active_since: 1  // 0 means htlc_since, 1 means update_since
   - asset cell
   	- capacity: 30 CKB
-  	- lockscript: PAL
+  	- lockscript: PCAL
 - outputs
   - bob asset cell
   	- capacity: 30 CKB
@@ -1134,7 +1141,7 @@ At last, Bob submitted the last unproved htlc and got all his asset back.
         - last_unlock_block_number: 10000
       - merkle_proof
 ```
-
+#### on-chain scripts
 - PCT
    - verify settle channel witness
    - verify channel cell state change 
