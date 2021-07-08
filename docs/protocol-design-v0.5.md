@@ -32,7 +32,9 @@ Fiber Network Protocol Design V0.5
 
 > Refer to [design v0.4](https://github.com/nervosnetwork/fiber/blob/master/docs/zh-cn/architecture-design-v0.4.md)
 
-> For more information about this document refer to: https://github.com/nervosnetwork/fiber/issues/3
+> For information about the upgraded design, refer to: https://github.com/nervosnetwork/fiber/issues/3
+
+This article describes the off-chain interactions and on-chain transactions of fiber payment channel. To prevent the article from being too long, some context may be missing. In order to describe the whole protocol clearly, more specifics need be added in the future. 
 
 ## Open Channel
 
